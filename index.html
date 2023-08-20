@@ -3,7 +3,7 @@
 <head>
     <meta charset='utf-8'>
     <meta http-equiv='X-UA-Compatible' content='IE=edge'>
-    <title>Page Title</title>
+    <title>Film List miniProject</title>
     <meta name='viewport' content='width=device-width, initial-scale=1'>
     <link rel="stylesheet" href="/assets/css/bootstrap.min.css">
     <script src="https://unpkg.com/htmx.org@1.9.2" integrity="sha384-L6OqL9pRWyyFU3+/bjdSri+iIphTN/bvYyM37tICVyOJkWZLpP2vGn6VUEXgzg6h" crossorigin="anonymous"></script>
@@ -16,7 +16,9 @@
         
             <ul class="list-group fs-5 me-5" id="film-list">
                 {{ range .Films }}
-                    <li class="list-group-item bg-primary text-white">{{ .Title }} - {{ .Director }}</li>
+                    {{block "film-list-element" .}}
+                        <li class="list-group-item bg-primary text-white">{{ .Title }} - {{ .Director }}</li>
+                    {{end}}
                 {{ end }}
             </ul>
         </div>
@@ -40,7 +42,33 @@
                 </button>
             </form>
         </div>
+        
+    </div>
 
+    <div class="col-4">
+        <h1 class="mb-4">Movie Info</h1>
+    
+        <form hx-get="/get-film-info/" hx-target="#movie-info" hx-swap="innerHTML" hx-indicator="#spinner2">
+            <div class="mb-3">
+                <label for="movie-title">Title</label>
+                <input type="text" name="title" id="movie-title" class="form-control" />
+            </div>
+    
+            <button type="submit" class="btn btn-primary">
+                <span id="spinner2" class="spinner-border spinner-border-sm htmx-indicator"></span>
+                Get Info
+            </button>
+        </form>
+    
+        <div id="movie-info" class="card mt-4">
+            {{block "film-info-element" .}}
+                <img src="{{.Poster}}" class="card-img-top" alt="">
+                <div class="card-body">
+                    <h5 class="card-title">{{.Title}} ({{.Year}})</h5>
+                    <p class="card-text"> {{.Plot}} </p>
+                </div>
+            {{end}}
+        </div>
     </div>
 
 </body>
