@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"text/template"
+	"time"
 )
 
 type Film struct {
@@ -16,6 +17,7 @@ func main() {
 
 	http.HandleFunc("/assets/css/bootstrap.min.css", serveCSS)
 	http.HandleFunc("/", rootRoute)
+	http.HandleFunc("/add-film/", addFilm)
 	log.Fatal(http.ListenAndServe(":8000", nil))
 	fmt.Println("server is running on port 8000")
 
@@ -32,6 +34,16 @@ func rootRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpl := template.Must(template.ParseFiles("index.html"))
 	tmpl.Execute(w, films)
+}
+
+func addFilm(w http.ResponseWriter, r *http.Request) {
+	//enableCors(&w)
+	time.Sleep(1 * time.Second)
+	Title := r.PostFormValue("title")
+	Director := r.PostFormValue("director")
+	htmlStr := fmt.Sprintf("<li class='list-group-item bg-primary text-white'> %s - %s </li>", Title, Director)
+	tmpl, _ := template.New("newfilm").Parse(htmlStr)
+	tmpl.Execute(w, nil)
 }
 
 func enableCors(w *http.ResponseWriter) {
