@@ -1,13 +1,17 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
-	"net/http"
 	"strconv"
-	"text/template"
 	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/template/html/v2"
+	"github.com/gofiber/websocket/v2"
 )
 
 type Film struct {
@@ -29,58 +33,60 @@ type FilmCard struct {
 	Plot   string
 }
 
+type Comment struct {
+	Username string
+	Comment  string
+}
+
+var comments []Comment
+
 func main() {
+	engine := html.New("./", ".html")
+	app := fiber.New(fiber.Config{Views: engine})
+	app.Use(cors.New())
 
-	http.HandleFunc("/assets/css/bootstrap.min.css", serveCSS)
-	http.HandleFunc("/add-film/", addFilm)
-	http.HandleFunc("/get-film-info/", getFilmInfo)
-	http.HandleFunc("/", rootRoute)
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	app.Static("/assets/css/bootstrap.min.css", "assets/css/bootstrap.min.css")
+	app.Post("/add-film/", addFilm)
+	app.Post("/add-comment/", addComment)
+	app.Get("/get-film-info/", getFilmInfo)
+	app.Get("/ws/comments/", websocket.New(handleConnections))
+	app.Get("/", rootRoute)
+
+	log.Fatal(app.Listen(":8000"))
 	fmt.Println("server is running on port 8000")
-
 }
 
-func rootRoute(w http.ResponseWriter, r *http.Request) {
-	//enableCors(&w)
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
+func rootRoute(c *fiber.Ctx) error {
+	films := []Film{
+		{Title: "The Godfather", Director: "Francis Ford Coppola"},
+		{Title: "Blade Runner", Director: "Ridley Scott"},
+		{Title: "The Thing", Director: "John Carpenter"},
 	}
-	films := map[string][]Film{
-		"Films": {
-			{Title: "The Godfather", Director: "Francis Ford Coppola"},
-			{Title: "Blade Runner", Director: "Ridley Scott"},
-			{Title: "The Thing", Director: "John Carpenter"},
-		},
-	}
-	tmpl := template.Must(template.ParseFiles("index.html"))
-	tmpl.Execute(w, films)
+	return c.Render("index", fiber.Map{
+		"Films":    films,
+		"Comments": comments,
+	})
 }
 
-func addFilm(w http.ResponseWriter, r *http.Request) {
-	//enableCors(&w)
+func addFilm(c *fiber.Ctx) error {
 	time.Sleep(1 * time.Second)
-	Title := r.PostFormValue("title")
-	Director := r.PostFormValue("director")
-	tmpl := template.Must(template.ParseFiles("index.html"))
-	tmpl.ExecuteTemplate(w, "film-list-element", Film{Title: Title, Director: Director})
+	Title := c.FormValue("title")
+	Director := c.FormValue("director")
+	return c.Render("film-list-element", Film{Title: Title, Director: Director})
 }
 
-func getFilmInfo(w http.ResponseWriter, r *http.Request) {
-	title := r.URL.Query().Get("title")
+func getFilmInfo(c *fiber.Ctx) error {
+	title := c.Query("title")
 	if title == "" {
-		http.Error(w, "Missing title parameter", http.StatusBadRequest)
-		return
+		return c.Status(fiber.StatusBadRequest).SendString("Missing title parameter")
 	}
 
 	film, err := fetchFilm(title)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.Status(fiber.StatusInternalServerError).SendString(err.Error())
 	}
 
-	tmpl := template.Must(template.ParseFiles("index.html"))
-	tmpl.ExecuteTemplate(w, "film-info-element", FilmCard{Poster: film.Poster, Title: film.Title, Year: film.Year, Plot: film.Plot})
+	return c.Render("film-info-element", FilmCard{Poster: film.Poster, Title: film.Title, Year: film.Year, Plot: film.Plot})
 }
 
 func fetchFilm(title string) (*omdbResponse, error) {
@@ -119,11 +125,37 @@ func fetchFilm(title string) (*omdbResponse, error) {
 	}, nil
 }
 
-func enableCors(w *http.ResponseWriter) {
-	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+func addComment(c *fiber.Ctx) error {
+	username := c.FormValue("username")
+	comment := c.FormValue("comment")
+	comments = append(comments, Comment{Username: username, Comment: comment})
+	broadcast(Comment{Username: username, Comment: comment})
+	return c.Render("comments-element", Comment{Username: username, Comment: comment})
 }
 
-func serveCSS(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/css")
-	http.ServeFile(w, r, "assets/css/bootstrap.min.css")
+var conns = make(map[*websocket.Conn]bool)
+
+func handleConnections(c *websocket.Conn) {
+	conns[c] = true
+	defer delete(conns, c)
+	for {
+		messageType, message, err := c.ReadMessage()
+		if err != nil || messageType == websocket.CloseMessage {
+			break
+		}
+		if messageType == websocket.TextMessage {
+			var comment Comment
+			if err := json.Unmarshal(message, &comment); err == nil {
+				comments = append(comments, comment)
+				broadcast(comment)
+			}
+		}
+	}
+}
+
+func broadcast(comment Comment) {
+	message, _ := json.Marshal(comment)
+	for conn := range conns {
+		conn.WriteMessage(websocket.TextMessage, message)
+	}
 }
